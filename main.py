@@ -108,16 +108,51 @@ class SkipGram:
         self.context = context  # the size of the context window (not counting the target word)
         self.word_count_threshold = word_count_threshold  # ignore low frequency words (appearing under the threshold)
 
-        # Flatten the list of sentences into a list of words
-        words = list(chain(*sentences))
         # Create a word:count dictionary
-        word_counts = Counter(words)
-        # Filter out low-frequency words
-        self.word_counts = {word: count for word, count in word_counts.items() if count >= self.word_count_threshold}
-        # Create a word:index map
-        self.word_index = {word: i for i, word in enumerate(self.word_counts.keys())}
-        # Create an index:word map
-        self.index_word = {i: word for word, i in self.word_index.items()}
+        self.word_count = {}
+        counts = Counter()
+        for line in sentences:
+            counts.update(line.split())
+
+        # Ignore low frequency words and stopwords
+        nltk.download("stopwords", quiet=True)
+        stop_words = set(stopwords.words("english"))
+        counts = Counter(
+            {
+                k: v
+                for k, v in counts.items()
+                if v >= self.word_count_threshold and k not in stop_words
+            }
+        )
+        self.word_count = dict(counts)
+
+        # Word-index map
+        self.word_index = {}
+        index = 0
+        for word in self.word_count.keys():
+            self.word_index[word] = index
+            index += 1
+
+        # Define the vocabulary size
+        self.vocab_size = len(self.word_index)
+
+        # Define embedding matrices
+        self.T = []
+        self.C = []
+
+    @staticmethod
+    def cosine_similarity(vec1, vec2):
+        """
+        Calculate the cosine similarity between two vectors.
+        """
+        dot_product = np.dot(vec1, vec2)
+        norm_product = np.linalg.norm(vec1) * np.linalg.norm(vec2)
+
+        # To prevent division by zero
+        if norm_product == 0:
+            return 0
+        else:
+            return dot_product / norm_product
 
     def compute_similarity(self, w1, w2):
         """ Returns the cosine similarity (in [0,1]) between the specified words.
@@ -128,9 +163,17 @@ class SkipGram:
         Retunrns: a float in [0,1]; defaults to 0.0 if one of specified words is OOV.
     """
         sim = 0.0  # default
-        # TODO
 
-        return sim  # default
+        # Check if both words are in our word_index map
+        if w1 in self.word_index and w2 in self.word_index:
+            # Fetch the embeddings of the words
+            embedding_w1 = self.T[:, self.word_index[w1]]
+            embedding_w2 = self.T[:, self.word_index[w2]]
+
+            # Compute cosine similarity
+            sim = SkipGram.cosine_similarity(embedding_w1, embedding_w2)
+
+        return sim
 
     def get_closest_words(self, w, n=5):
         """Returns a list containing the n words that are the closest to the specified word.
@@ -139,6 +182,60 @@ class SkipGram:
             w: the word to find close words to.
             n: the number of words to return. Defaults to 5.
         """
+
+    def create_pos_and_neg_lists(self, sentence):
+        """
+            Creates lists of positive and negative word pairs for a given sentence.
+        """
+        pos_lst = list(skipgrams(sentence.split(), int(self.context / 2), 1))
+        pos_lst += [(tup[1], tup[0]) for tup in pos_lst]
+        neg_lst = []
+        for _ in range(self.neg_samples):
+            neg_lst += [
+                (word, random.choice(list(self.word_count.keys())))
+                for word in sentence.split()
+            ]
+
+        # merge to key value
+        pos = {}
+        for x, y in pos_lst:
+            if x not in self.word_count or y not in self.word_count:
+                continue
+            pos.setdefault(x, []).append(y)
+        neg = {}
+        for x, y in neg_lst:
+            if x not in self.word_count or y not in self.word_count:
+                continue
+            neg.setdefault(x, []).append(y)
+        return pos, neg
+
+    def create_learning_vector(self, pos, neg):
+        dic = {}
+        learning_vector = []
+        for key, val in pos.items():
+            dic[key] = np.zeros(self.vocab_size, dtype=int)
+            for v in val:
+                dic[key][self.word_index[v]] += 1
+            for v in neg[key]:
+                dic[key][self.word_index[v]] -= 1
+        learning_vector += dic.items()
+        return learning_vector
+
+    def preprocess_sentences(self):
+        """
+            Preprocesses sentences for the SkipGram model, creating a learning vector with positive and negative examples.
+        :return:
+            learning_vector: A list of tuples, each with a target word and its corresponding context vector.
+        """
+        learning_vector = []
+        for sentence in self.sentences:
+            # create positive and negative lists
+            pos, neg = self.create_pos_and_neg_lists(sentence)
+            print(f"pos = {pos}")
+            print(f"neg = {neg}")
+            # create the learning context vector
+            learning_vector += self.create_learning_vector(pos, neg)
+        return learning_vector
 
     def learn_embeddings(self, step_size=0.001, epochs=50, early_stopping=3, model_path=None):
         """Returns a trained embedding models and saves it in the specified path
@@ -150,9 +247,8 @@ class SkipGram:
             model_path: full path (including file name) to save the model pickle at.
         """
 
-        vocab_size = ...  # todo: set to be the number of words in the model (how? how many, indeed?)
-        T = np.random.rand(self.d, vocab_size)  # embedding matrix of target words
-        C = np.random.rand(vocab_size, self.d)  # embedding matrix of context words
+        T = np.random.rand(self.d, self.vocab_size)  # embedding matrix of target words
+        C = np.random.rand(self.vocab_size, self.d)  # embedding matrix of context words
 
         # tips:
         # 1. have a flag that allows printing to standard output so you can follow timing, loss change etc.
@@ -161,7 +257,23 @@ class SkipGram:
         # 4.1 before you start - have the training examples ready - both positive and negative samples
         # 4.2. it is recommended to train on word indices and not the strings themselves.
 
-        # TODO
+        # create learning vectors
+        learning_vector = self.preprocess_sentences()
+        print("done preprocessing")
+        print("start training")
+        for i in range(epochs):
+            print(f"epoch {i + 1}")
+
+            # learning:
+            for key, val in learning_vector:
+                # Input layer x T = Hidden layer
+                input_layer_id = word_index[key]
+                input_layer = np.zeros(vocab_size, dtype=int)
+                input_layer[input_layer_id] = 1
+                input_layer = np.vstack(input_layer)
+                hidden = T[:, input_layer_id][:, None]
+                output_layer = np.dot(C, hidden)
+                y = sigmoid(output_layer)
 
         return T, C
 
