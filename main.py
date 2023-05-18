@@ -235,6 +235,23 @@ class SkipGram:
             learning_vector += self.create_learning_vector(pos, neg)
         return learning_vector
 
+    def forward_pass(self, word, T, C):
+        """
+        Performs a forward pass of the neural network for the SkipGram model.
+        """
+        # One-hot encode the input word
+        input_layer = np.zeros(self.vocab_size, dtype=int)
+        input_layer[self.word_index[word]] = 1
+        input_layer = np.vstack(input_layer)
+        # Retrieve the embedding of the current word
+        hidden = T[:, self.word_index[word]][:, None]
+        # Compute the output layer
+        output_layer = np.dot(C, hidden)
+        # Scale the predictions to be between 0 and 1
+        y = sigmoid(output_layer)
+
+        return input_layer, hidden, y
+
     def learn_embeddings(self, step_size=0.001, epochs=50, early_stopping=3, model_path=None):
         """Returns a trained embedding models and saves it in the specified path
 
@@ -248,41 +265,54 @@ class SkipGram:
         T = np.random.rand(self.d, self.vocab_size)  # embedding matrix of target words
         C = np.random.rand(self.vocab_size, self.d)  # embedding matrix of context words
 
-        # tips:
-        # 1. have a flag that allows printing to standard output so you can follow timing, loss change etc.
-        # 2. print progress indicators every N (hundreds? thousands? an epoch?) samples
-        # 3. save a temp model after every epoch
-        # 4.1 before you start - have the training examples ready - both positive and negative samples
-        # 4.2. it is recommended to train on word indices and not the strings themselves.
-
         # create learning vectors
         learning_vector = self.preprocess_sentences()
+
         print("done preprocessing")
         print("start training")
+
+        best_loss = np.inf  # initialize the best loss as infinity
+        epochs_no_improve = 0  # initialize epochs without improvement
+
         for i in range(epochs):
             print(f"epoch {i + 1}")
 
-            # learning:
+            epoch_loss = 0  # initialize loss for this epoch
+
             for key, val in learning_vector:
-                # Input layer x T = Hidden layer
-                input_layer_id = word_index[key]
-                input_layer = np.zeros(vocab_size, dtype=int)
-                input_layer[input_layer_id] = 1
-                input_layer = np.vstack(input_layer)
-                hidden = T[:, input_layer_id][:, None]
-                output_layer = np.dot(C, hidden)
-                y = sigmoid(output_layer)
+                # forward pass
+                input_layer, hidden, y = self.forward_pass(word, T, C)
+
+                # calculate loss
+                e = self.calculate_loss(y, val)
+                epoch_loss += e  # NEW: add loss of this example to the epoch loss
 
                 # backprop with stochastic gradient descent
-                e = y - val.reshape(self.vocab_size, 1)
-                dC = np.dot(hidden, e.T).T
-                dT = np.dot(input_layer, np.dot(C.T, e).T).T
-                C -= step_size * dC
-                T -= step_size * dT
+                T, C = SkipGram.update_weights(hidden, e, input_layer, C, T, step_size)
+
+            epoch_loss /= len(learning_vector)  # calculate average loss for this epoch
+            print(f"Epoch {i + 1}, Loss: {epoch_loss}")
+
+            # NEW: Early stopping check
+            if epoch_loss < best_loss:
+                best_loss = epoch_loss
+                epochs_no_improve = 0  # reset the count
+            else:
+                epochs_no_improve += 1  # increment the count
+
+            if epochs_no_improve == early_stopping:
+                print("Early stopping!")
+                break
 
         # backup the last trained model (the last epoch)
         self.T = T
         self.C = C
+
+        # Save model after finishing training
+        with open(model_path, "wb") as file:
+            pickle.dump(self, file)
+
+        print(f"Model saved to path: '{model_path}'")
 
         return T, C
 
