@@ -64,7 +64,18 @@ class MyTestCase(unittest.TestCase):
 
     def test_preprocess_sentences(self):
         sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
-        print(sg.preprocess_sentences())
+        le = sg.preprocess_sentences()
+
+    def test_calculate_loss(self):
+        sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
+        sg.vocab_size = 3
+        y = np.array([0, 0, 1, 0])
+        val = np.array([0.2, 0.7, 0.9, 0.3])
+        expected_loss = 1.8891518152
+        calculated_loss = sg.calculate_loss(y, val)
+        print(calculated_loss)
+        self.assertAlmostEqual(calculated_loss, expected_loss, places=5)
+
 
 
 if __name__ == '__main__':

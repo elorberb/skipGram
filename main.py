@@ -195,7 +195,6 @@ class SkipGram:
                 (word, random.choice(list(self.word_count.keys())))
                 for word in sentence.split()
             ]
-
         # merge to key value
         pos = {}
         for x, y in pos_lst:
@@ -218,6 +217,7 @@ class SkipGram:
                 dic[key][self.word_index[v]] += 1
             for v in neg[key]:
                 dic[key][self.word_index[v]] -= 1
+        print(dic)
         learning_vector += dic.items()
         return learning_vector
 
@@ -231,8 +231,6 @@ class SkipGram:
         for sentence in self.sentences:
             # create positive and negative lists
             pos, neg = self.create_pos_and_neg_lists(sentence)
-            print(f"pos = {pos}")
-            print(f"neg = {neg}")
             # create the learning context vector
             learning_vector += self.create_learning_vector(pos, neg)
         return learning_vector
@@ -275,6 +273,35 @@ class SkipGram:
                 output_layer = np.dot(C, hidden)
                 y = sigmoid(output_layer)
 
+                # backprop with stochastic gradient descent
+                e = y - val.reshape(self.vocab_size, 1)
+                dC = np.dot(hidden, e.T).T
+                dT = np.dot(input_layer, np.dot(C.T, e).T).T
+                C -= step_size * dC
+                T -= step_size * dT
+
+        # backup the last trained model (the last epoch)
+        self.T = T
+        self.C = C
+
+        return T, C
+
+    def calculate_loss(self, y, val):
+        """
+        Calculates the cross-entropy loss between the target values and the predicted values.
+        """
+        loss = -np.sum(y * np.log(val) + (1 - y) * np.log(1 - val))
+        return loss
+
+    @staticmethod
+    def update_weights(hidden, e, input_layer, C, T, step_size):
+        """
+        Updates the weights of the model based on the calculated error and input values.
+        """
+        dC = np.dot(hidden, e.T).T
+        dT = np.dot(input_layer, np.dot(C.T, e).T).T
+        C -= step_size * dC
+        T -= step_size * dT
         return T, C
 
     def combine_vectors(self, T, C, combo=0, model_path=None):
