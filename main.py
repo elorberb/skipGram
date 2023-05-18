@@ -96,7 +96,8 @@ def load_model(fn):
         fn: the full path to the model to load.
     """
 
-    # TODO
+    with open(fn, "rb") as f:
+        sg_model = pickle.load(f)
     return sg_model
 
 
@@ -114,7 +115,7 @@ class SkipGram:
         for line in sentences:
             counts.update(line.split())
 
-        # Ignore low frequency words and stopwords
+        # Ignore low frequency words
         nltk.download("stopwords", quiet=True)
         stop_words = set(stopwords.words("english"))
         counts = Counter(
@@ -134,7 +135,7 @@ class SkipGram:
             index += 1
 
         # Define the vocabulary size
-        self.vocab_size = len(self.word_index)
+        self.vocab_size = len(counts)
 
         # Define embedding matrices
         self.T = []
@@ -210,16 +211,13 @@ class SkipGram:
 
     def create_learning_vector(self, pos, neg):
         dic = {}
-        learning_vector = []
         for key, val in pos.items():
             dic[key] = np.zeros(self.vocab_size, dtype=int)
             for v in val:
                 dic[key][self.word_index[v]] += 1
             for v in neg[key]:
                 dic[key][self.word_index[v]] -= 1
-        print(dic)
-        learning_vector += dic.items()
-        return learning_vector
+        return dic.items()
 
     def preprocess_sentences(self):
         """
@@ -267,10 +265,9 @@ class SkipGram:
 
         # create learning vectors
         learning_vector = self.preprocess_sentences()
-
         print("done preprocessing")
-        print("start training")
 
+        print("start training")
         best_loss = np.inf  # initialize the best loss as infinity
         epochs_no_improve = 0  # initialize epochs without improvement
 
@@ -281,11 +278,11 @@ class SkipGram:
 
             for key, val in learning_vector:
                 # forward pass
-                input_layer, hidden, y = self.forward_pass(word, T, C)
+                input_layer, hidden, y = self.forward_pass(key, T, C)
 
                 # calculate loss
                 e = self.calculate_loss(y, val)
-                epoch_loss += e  # NEW: add loss of this example to the epoch loss
+                epoch_loss += e  # add loss of this example to the epoch loss
 
                 # backprop with stochastic gradient descent
                 T, C = SkipGram.update_weights(hidden, e, input_layer, C, T, step_size)
@@ -293,7 +290,7 @@ class SkipGram:
             epoch_loss /= len(learning_vector)  # calculate average loss for this epoch
             print(f"Epoch {i + 1}, Loss: {epoch_loss}")
 
-            # NEW: Early stopping check
+            # Early stopping check
             if epoch_loss < best_loss:
                 best_loss = epoch_loss
                 epochs_no_improve = 0  # reset the count
@@ -316,11 +313,19 @@ class SkipGram:
 
         return T, C
 
-    def calculate_loss(self, y, val):
+    @staticmethod
+    def calculate_loss(y, val):
         """
-        Calculates the cross-entropy loss between the target values and the predicted values.
+        Calculates the loss between the target values and the predicted values for Skip-gram with negative sampling.
         """
-        loss = -np.sum(y * np.log(val) + (1 - y) * np.log(1 - val))
+        loss = 0
+        # Positive samples loss
+        pos_loss = -np.log(y[val == 1])
+
+        # Negative samples loss
+        neg_loss = -np.log(1 - y[val == -1])
+        loss = np.sum(pos_loss) + np.sum(neg_loss)
+
         return loss
 
     @staticmethod
@@ -329,7 +334,7 @@ class SkipGram:
         Updates the weights of the model based on the calculated error and input values.
         """
         dC = np.dot(hidden, e.T).T
-        dT = np.dot(input_layer, np.dot(C.T, e).T).T
+        dT = np.dot(input_layer.T, np.dot(C.T, e).T).T
         C -= step_size * dC
         T -= step_size * dT
         return T, C
@@ -348,8 +353,23 @@ class SkipGram:
                    4: concat C and T vectors (effectively doubling the dimention of the embedding space)
             model_path: full path (including file name) to save the model pickle at.
         """
+        if combo == 0:
+            V = T
+        elif combo == 1:
+            V = C.T
+        elif combo == 2:
+            V = (T + C.T) / 2
+        elif combo == 3:
+            V = T + C.T
+        elif combo == 4:
+            V = np.concatenate((T, C.T), axis=1)
+        else:
+            raise ValueError("Invalid combo option. Choose a number between 0 and 4.")
 
-        # TODO
+        if model_path:
+            with open(model_path, "wb") as file:
+                pickle.dump(V, file)
+            print(f"Combined vectors saved to path: '{model_path}'")
 
         return V
 

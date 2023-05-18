@@ -76,6 +76,51 @@ class MyTestCase(unittest.TestCase):
         print(calculated_loss)
         self.assertAlmostEqual(calculated_loss, expected_loss, places=5)
 
+    def test_learn_embeddings(self):
+        # Set up test data and parameters
+        step_size = 0.0001
+        epochs = 50
+        early_stopping = 3
+        model_path = "test_model.pkl"
+        sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
+        T, C = sg.learn_embeddings(step_size, epochs, early_stopping, model_path)
+        print(f"T shape:\n{T.shape}")
+        print(f"C shape:\n{C.shape}")
+
+
+    def test_combine_vectors(self):
+        # Suppose that the 'combine_vectors' function is a method in the 'Embedding' class
+        # Then you would create an instance of the Embedding class:
+        # embedding = Embedding()
+        # But for now, I will assume the function is standalone
+
+        # Test combo = 0
+        V = combine_vectors(self.T, self.C, combo=0)
+        np.testing.assert_array_equal(V, self.T)
+
+        # Test combo = 1
+        V = combine_vectors(self.T, self.C, combo=1)
+        np.testing.assert_array_equal(V, self.C.T)
+
+        # Test combo = 2
+        V = combine_vectors(self.T, self.C, combo=2)
+        np.testing.assert_array_equal(V, (self.T + self.C.T) / 2)
+
+        # Test combo = 3
+        V = combine_vectors(self.T, self.C, combo=3)
+        np.testing.assert_array_equal(V, self.T + self.C.T)
+
+        # Test combo = 4
+        V = combine_vectors(self.T, self.C, combo=4)
+        np.testing.assert_array_equal(V, np.concatenate((self.T, self.C.T), axis=1))
+
+        # Test saving the model
+        combine_vectors(self.T, self.C, combo=0, model_path=self.model_path)
+        self.assertTrue(os.path.exists(self.model_path))
+
+        # Test invalid combo value
+        with self.assertRaises(ValueError):
+            combine_vectors(self.T, self.C, combo=5)
 
 
 if __name__ == '__main__':
