@@ -80,47 +80,88 @@ class MyTestCase(unittest.TestCase):
         # Set up test data and parameters
         step_size = 0.0001
         epochs = 50
-        early_stopping = 3
+        early_stopping = 30
         model_path = "test_model.pkl"
         sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
         T, C = sg.learn_embeddings(step_size, epochs, early_stopping, model_path)
         print(f"T shape:\n{T.shape}")
         print(f"C shape:\n{C.shape}")
 
-
     def test_combine_vectors(self):
-        # Suppose that the 'combine_vectors' function is a method in the 'Embedding' class
-        # Then you would create an instance of the Embedding class:
-        # embedding = Embedding()
-        # But for now, I will assume the function is standalone
+        sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
+        T = np.array([[1, 2, 3], [4, 5, 6]])
+        C = np.array([[7, 8, 9], [10, 11, 12]]).T
+        model_path = "test_model.pkl"
 
         # Test combo = 0
-        V = combine_vectors(self.T, self.C, combo=0)
-        np.testing.assert_array_equal(V, self.T)
+        V = sg.combine_vectors(T, C, combo=0)
+        np.testing.assert_array_equal(V, T)
 
         # Test combo = 1
-        V = combine_vectors(self.T, self.C, combo=1)
-        np.testing.assert_array_equal(V, self.C.T)
+        V = sg.combine_vectors(T, C, combo=1)
+        np.testing.assert_array_equal(V, C.T)
 
         # Test combo = 2
-        V = combine_vectors(self.T, self.C, combo=2)
-        np.testing.assert_array_equal(V, (self.T + self.C.T) / 2)
+        V = sg.combine_vectors(T, C, combo=2)
+        np.testing.assert_array_equal(V, (T + C.T) / 2)
 
         # Test combo = 3
-        V = combine_vectors(self.T, self.C, combo=3)
-        np.testing.assert_array_equal(V, self.T + self.C.T)
+        V = sg.combine_vectors(T, C, combo=3)
+        np.testing.assert_array_equal(V, T + C.T)
 
         # Test combo = 4
-        V = combine_vectors(self.T, self.C, combo=4)
-        np.testing.assert_array_equal(V, np.concatenate((self.T, self.C.T), axis=1))
+        V = sg.combine_vectors(T, C, combo=4)
+        np.testing.assert_array_equal(V, np.concatenate((T, C.T), axis=1))
 
         # Test saving the model
-        combine_vectors(self.T, self.C, combo=0, model_path=self.model_path)
-        self.assertTrue(os.path.exists(self.model_path))
+        sg.combine_vectors(T, C, combo=0, model_path=model_path)
+        self.assertTrue(os.path.exists(model_path))
 
         # Test invalid combo value
         with self.assertRaises(ValueError):
-            combine_vectors(self.T, self.C, combo=5)
+            sg.combine_vectors(T, C, combo=5)
+
+    def test_get_closest_words(self):
+        # Initialize a SkipGram object
+        skip_gram = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
+        skip_gram.word_index = {'cat': 0, 'dog': 1, 'mouse': 2, 'parrot': 3, 'elephant': 4}
+        skip_gram.index_word = {v: k for k, v in skip_gram.word_index.items()}
+        skip_gram.vocab_size = len(skip_gram.word_index)
+
+        # Assuming the embeddings (T matrix) is of shape (vocab_size, embed_dim)
+        # We give similar vectors for 'cat', 'dog' and 'mouse' and distinct ones for 'parrot' and 'elephant'.
+        skip_gram.T = np.array([[1, 0.9, 0.9, 0.1, 0.1],
+                                [0.9, 1, 1, 0.2, 0.2],
+                                [0.9, 0.85, 0.85, 0.15, 0.15]])
+
+        # Now, test get_closest_words function
+        closest_words = skip_gram.get_closest_words('cat', n=2)
+        # 'cat' should be most similar to 'dog' and 'mouse'
+        self.assertEqual(closest_words, ['dog', 'mouse'])
+
+        # Test with a word not in the vocabulary
+        closest_words = skip_gram.get_closest_words('tiger', n=2)
+        self.assertEqual(closest_words, [])
+
+    def test_find_analogy(self):
+        # Initialize a SkipGram object
+        skip_gram = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
+        skip_gram.word_index = {'king': 0, 'man': 1, 'woman': 2, 'queen': 3}
+        skip_gram.index_word = {v: k for k, v in skip_gram.word_index.items()}
+        skip_gram.vocab_size = len(skip_gram.word_index)
+
+        # Assuming the embeddings (T matrix) is of shape (vocab_size, embed_dim)
+        T = np.array([[0.8, 0.4, 0.2, 0.6],
+                      [0.6, 0.3, 0, 0.3],
+                      [0.4, 0.2, 0.6, 0.8]])
+        skip_gram.T = T
+
+        # Test the analogy "king - man + woman = queen"
+        analogy_word = skip_gram.find_analogy('man', 'king', 'woman')
+        self.assertEqual('queen', analogy_word)
+
+        actual = skip_gram.test_analogy('man', 'king', 'woman', 'queen')
+        return self.assertEqual(actual, 1)
 
 
 if __name__ == '__main__':

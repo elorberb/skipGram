@@ -89,6 +89,11 @@ def normalize_text(fn):
 def sigmoid(x): return 1.0 / (1 + np.exp(-x))
 
 
+def softmax(x):
+    e_x = np.exp(x - np.max(x))  # subtract max(x) for numerical stability
+    return e_x / e_x.sum(axis=0)  # return probabilities
+
+
 def load_model(fn):
     """ Loads a model pickle and return it.
 
@@ -141,6 +146,9 @@ class SkipGram:
         self.T = []
         self.C = []
 
+        # create reverse mapping from index to word
+        self.index_word = {i: word for word, i in self.word_index.items()}
+
     @staticmethod
     def cosine_similarity(vec1, vec2):
         """
@@ -166,7 +174,7 @@ class SkipGram:
         sim = 0.0  # default
 
         # Check if both words are in our word_index map
-        if w1 in self.word_index and w2 in self.word_index:
+        if w1 in self.word_index and w2 in self.word_index and w1 != w2:
             # Fetch the embeddings of the words
             embedding_w1 = self.T[:, self.word_index[w1]]
             embedding_w2 = self.T[:, self.word_index[w2]]
@@ -183,6 +191,18 @@ class SkipGram:
             w: the word to find close words to.
             n: the number of words to return. Defaults to 5.
         """
+        if w not in self.word_index:
+            print(f"Word '{w}' not in vocabulary.")
+            return []
+        # Calculate the similarity between the word and all others
+        similarities = [(i, self.compute_similarity(w, self.index_word[i])) for i in range(self.vocab_size)]
+
+        # Sort by similarity
+        similarities.sort(key=lambda x: x[1], reverse=True)
+
+        # Return the top n words, skip the first one because it's the word itself
+        n_words = [self.index_word[i] for i, _ in similarities[:n]]
+        return n_words
 
     def create_pos_and_neg_lists(self, sentence):
         """
@@ -250,6 +270,14 @@ class SkipGram:
 
         return input_layer, hidden, y
 
+    def backprop_pass(self, y, val, input_layer, hidden, C, T, step_size):
+        # calculate loss
+        e = self.calculate_loss(y, val)
+
+        # backprop with stochastic gradient descent
+        T, C = SkipGram.update_weights(hidden, e, input_layer, C, T, step_size)
+        return T, C, e
+
     def learn_embeddings(self, step_size=0.001, epochs=50, early_stopping=3, model_path=None):
         """Returns a trained embedding models and saves it in the specified path
 
@@ -280,12 +308,10 @@ class SkipGram:
                 # forward pass
                 input_layer, hidden, y = self.forward_pass(key, T, C)
 
-                # calculate loss
-                e = self.calculate_loss(y, val)
-                epoch_loss += e  # add loss of this example to the epoch loss
+                # backpropagation pass
+                T, C, e = self.backprop_pass(y, val, input_layer, hidden, C, T, step_size)
 
-                # backprop with stochastic gradient descent
-                T, C = SkipGram.update_weights(hidden, e, input_layer, C, T, step_size)
+                epoch_loss += e  # add loss of this example to the epoch loss
 
             epoch_loss /= len(learning_vector)  # calculate average loss for this epoch
             print(f"Epoch {i + 1}, Loss: {epoch_loss}")
@@ -333,13 +359,16 @@ class SkipGram:
         """
         Updates the weights of the model based on the calculated error and input values.
         """
+        # calculate gradients
         dC = np.dot(hidden, e.T).T
         dT = np.dot(input_layer.T, np.dot(C.T, e).T).T
+        # perform update
         C -= step_size * dC
         T -= step_size * dT
         return T, C
 
-    def combine_vectors(self, T, C, combo=0, model_path=None):
+    @staticmethod
+    def combine_vectors(T, C, combo=0, model_path=None):
         """Returns a single embedding matrix and saves it to the specified path
 
         Args:
@@ -383,9 +412,31 @@ class SkipGram:
              w3: third word in the analogy (string)
         """
 
-        # TODO
+        if w1 not in self.word_index or w2 not in self.word_index or w3 not in self.word_index:
+            print("At least one of the words is not in the vocabulary.")
+            return
 
-        return w
+        # Get the vector representations of the words
+        vec_w1 = self.T[:, self.word_index[w1]]
+        vec_w2 = self.T[:, self.word_index[w2]]
+        vec_w3 = self.T[:, self.word_index[w3]]
+
+        # Compute the target vector
+        vec_v = vec_w2 - vec_w1 + vec_w3
+
+        # Find the closest word vector
+        closest_word = None
+        closest_distance = float('-inf')
+
+        for i in range(self.vocab_size):
+            # Compute cosine similarity
+            sim = SkipGram.cosine_similarity(vec_v, self.T[:, i])
+
+            if sim > closest_distance:
+                closest_distance = sim
+                closest_word = self.index_word[i]
+
+        return closest_word
 
     def test_analogy(self, w1, w2, w3, w4, n=1):
         """Returns True if sim(w1-w2+w3, w4)@n; Otherwise return False.
@@ -400,6 +451,18 @@ class SkipGram:
              n: the distance (work rank) to be accepted as similarity
             """
 
-        # TODO
+        # Check if all words are in the vocabulary
+        if w1 not in self.word_index or w2 not in self.word_index or w3 not in self.word_index or w4 not in self.word_index:
+            print("At least one of the words is not in the vocabulary.")
+            return False
 
-        return False
+        # Compute the analogy word using the find_analogy function
+        analogy_word = self.find_analogy(w1, w2, w3)
+
+        if analogy_word == w4:
+            return True
+        else:
+            # Get the n closest words to the computed analogy vector
+            closest_words = self.get_closest_words(analogy_word, n=n)
+            # Check if w4 is among the closest words
+            return w4 in closest_words
