@@ -58,7 +58,6 @@ def expand_contractions(text):
         "that's": "that is",
         "what's": "what is",
         "here's": "here is"
-        # Add more as needed
     }
     for contraction, expansion in contractions_dict.items():
         text = text.replace(contraction, expansion)
@@ -71,17 +70,12 @@ def normalize_text(fn):
     Args:
         fn: full path to the text file to process
     """
-    sentences = []
+    with open(fn, "r") as f:
+        sentences = f.read().splitlines()
 
-    with open(fn, 'r', encoding='utf-8') as file:
-        text = file.read()
-
-    # Tokenize into sentences
-    nltk.download('punkt')
-    sentences = nltk.sent_tokenize(text)
-
-    # For each sentence, convert to lowercase, remove punctuation, and strip leading/trailing spaces
-    sentences = [re.sub(r'[^\w\s]', '', sent.lower()).strip() for sent in sentences]
+    sentences = [expand_contractions(sentence) for sentence in sentences]
+    sentences = [re.sub(r"[^a-zA-Z0-9\s]", "", sentence).lower().strip() for sentence in sentences]
+    sentences = [sentence for sentence in sentences if sentence]
 
     return sentences
 
@@ -120,14 +114,11 @@ class SkipGram:
         for line in sentences:
             counts.update(line.split())
 
-        # Ignore low frequency words
-        nltk.download("stopwords", quiet=True)
-        stop_words = set(stopwords.words("english"))
         counts = Counter(
             {
                 k: v
                 for k, v in counts.items()
-                if v >= self.word_count_threshold and k not in stop_words
+                if v >= self.word_count_threshold
             }
         )
         self.word_count = dict(counts)
@@ -206,7 +197,7 @@ class SkipGram:
 
     def create_pos_and_neg_lists(self, sentence):
         """
-            Creates lists of positive and negative word pairs for a given sentence.
+        Creates lists of positive and negative word pairs for a given sentence.
         """
         pos_lst = list(skipgrams(sentence.split(), int(self.context / 2), 1))
         pos_lst += [(tup[1], tup[0]) for tup in pos_lst]
@@ -230,6 +221,9 @@ class SkipGram:
         return pos, neg
 
     def create_learning_vector(self, pos, neg):
+        """
+        Create a learning vector with positive and negative examples.
+        """
         dic = {}
         for key, val in pos.items():
             dic[key] = np.zeros(self.vocab_size, dtype=int)
@@ -300,8 +294,6 @@ class SkipGram:
         epochs_no_improve = 0  # initialize epochs without improvement
 
         for i in range(epochs):
-            print(f"epoch {i + 1}")
-
             epoch_loss = 0  # initialize loss for this epoch
 
             for key, val in learning_vector:
@@ -311,7 +303,7 @@ class SkipGram:
                 # backpropagation pass
                 T, C, e = self.backprop_pass(y, val, input_layer, hidden, C, T, step_size)
 
-                epoch_loss += e  # add loss of this example to the epoch loss
+                epoch_loss += np.sum(e)  # add loss of this example to the epoch loss
 
             epoch_loss /= len(learning_vector)  # calculate average loss for this epoch
             print(f"Epoch {i + 1}, Loss: {epoch_loss}")
@@ -339,18 +331,11 @@ class SkipGram:
 
         return T, C
 
-    @staticmethod
-    def calculate_loss(y, val):
+    def calculate_loss(self, y, val):
         """
         Calculates the loss between the target values and the predicted values for Skip-gram with negative sampling.
         """
-        loss = 0
-        # Positive samples loss
-        pos_loss = -np.log(y[val == 1])
-
-        # Negative samples loss
-        neg_loss = -np.log(1 - y[val == -1])
-        loss = np.sum(pos_loss) + np.sum(neg_loss)
+        loss = y - val.reshape(self.vocab_size, 1)
 
         return loss
 
@@ -361,7 +346,7 @@ class SkipGram:
         """
         # calculate gradients
         dC = np.dot(hidden, e.T).T
-        dT = np.dot(input_layer.T, np.dot(C.T, e).T).T
+        dT = np.dot(input_layer, np.dot(C.T, e).T).T
         # perform update
         C -= step_size * dC
         T -= step_size * dT

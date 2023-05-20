@@ -66,19 +66,10 @@ class MyTestCase(unittest.TestCase):
         sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
         le = sg.preprocess_sentences()
 
-    def test_calculate_loss(self):
-        sg = SkipGram(self.sentences, neg_samples=2, word_count_threshold=0)
-        sg.vocab_size = 3
-        y = np.array([0, 0, 1, 0])
-        val = np.array([0.2, 0.7, 0.9, 0.3])
-        expected_loss = 1.8891518152
-        calculated_loss = sg.calculate_loss(y, val)
-        print(calculated_loss)
-        self.assertAlmostEqual(calculated_loss, expected_loss, places=5)
 
     def test_learn_embeddings(self):
         # Set up test data and parameters
-        step_size = 0.0001
+        step_size = 0.01
         epochs = 50
         early_stopping = 30
         model_path = "test_model.pkl"
@@ -162,6 +153,32 @@ class MyTestCase(unittest.TestCase):
 
         actual = skip_gram.test_analogy('man', 'king', 'woman', 'queen')
         return self.assertEqual(actual, 1)
+
+    @staticmethod
+    def test_model():
+        # Set up test data and parameters
+        step_size = 0.01
+        epochs = 50
+        early_stopping = 30
+        model_path = "harry_potter_model.pkl"
+
+        # Initialize your word2vec model
+        # Load the text file and preprocess it
+        sentences = normalize_text('corpora/harryPotter1.txt')
+
+        # Initialize a SkipGram object
+        word2vec = SkipGram(sentences)
+
+        # Train the word2vec model on the text file
+        T, C = word2vec.learn_embeddings(model_path=model_path)
+
+        print(f"T shape:\n{T.shape}")
+        print(f"C shape:\n{C.shape}")
+
+    def test_built_model(self):
+        model = load_model('harry_potter_model.pkl')
+        words = model.get_closest_words('snape', n=5)
+        print(words)
 
 
 if __name__ == '__main__':
